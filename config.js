@@ -26,5 +26,5 @@ export const CONFIG = {
   maxPlayers: 30,
   readySeconds: 3,         // "Bereit?"-Phase vor jeder Runde
   pickSeconds: 10,         // Zeit zum Karte wählen
-  revealSeconds: 7,        // Wie lange das Aufdecken gezeigt wird, bevor es weitergeht
+  // Nach dem Aufdecken startet der Spielleiter die nächste Runde per Klick.
 };

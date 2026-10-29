@@ -18,6 +18,7 @@ Läuft als statische Seite auf GitHub Pages. Für die Echtzeit-Synchronisation n
 |---|---|
 | `index.html` | Einstiegsseite |
 | `app.js` | Spiellogik, Rendering und Datenanbindung |
+| `i18n.js` | Alle Texte auf Deutsch und Englisch |
 | `styles.css` | Design auf Basis des Verivox Design Systems (`--ds-*`-Tokens oben in `:root`) |
 | `fonts/` | Selawik 400/700 (DS-Hausschrift, aus dem Verivox DS übernommen) |
 | `config.js` | Firebase-Zugang (gemeinsames Projekt mit Farbspur), Demo-Code und Zeiten |
@@ -73,13 +74,15 @@ Was die Regeln absichern:
 - Der Spielleiter meldet sich mit Code an und spielt selbst mit (👑).
   Wer bereits beigetreten ist, kann sich auch nachträglich oben über **„Spielleiter?“** anmelden.
 - In der Lobby kann der Spielleiter Spieler entfernen (✕). Ab 2 Spielern lässt sich das Spiel starten.
-- Danach laufen die Runden automatisch: 3 s „Bereit?“, 10 s Wählen, ca. 7 s Aufdecken, dann die nächste Runde.
+- Ablauf jeder Runde: 3 s „Bereit?“, 10 s Wählen, dann automatisches Aufdecken. Danach bleibt das Ergebnis stehen,
+  bis der Spielleiter auf **„Runde X starten“** klickt. Ist das Spiel entschieden, klickt er auf **„Siegertreppchen zeigen“**.
 - Nach Spielende startet **Neues Spiel** eine neue Partie. Alle Spieler bleiben in der Lobby, und neue können dazukommen.
+- Sprache: Oben rechts wählt jeder Spieler **DE** oder **EN**. Die Wahl wird im Browser gespeichert, beim ersten Besuch gilt die Browsersprache.
 - Testbots gibt es im Demo-Modus immer. Im Firebase-Modus erscheinen sie nur mit `?bots=1` in der URL.
 
 ## Wichtig zu wissen
 
-- **Das Gerät des Spielleiters ist der Schiedsrichter.** Es startet die Runden und wertet sie aus.
+- **Das Gerät des Spielleiters ist der Schiedsrichter.** Es wertet die Runden aus.
   Lass den Tab im Vordergrund geöffnet, am besten auf einem Laptop oder Beamer. Ist der Tab geschlossen oder das Handy gesperrt, pausiert das Spiel.
   Nach dem Neuladen geht es weiter.
 - Alle Zeiten basieren auf der Firebase-Serverzeit. So sehen alle Spieler denselben Countdown.

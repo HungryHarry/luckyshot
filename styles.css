@@ -139,6 +139,13 @@ b, strong { font-weight: var(--ds-font-weight-l); }
 .chip.me .e { font-size: 16px; }
 @media (max-width: 520px) { .chip.room { display: none; } }
 
+/* Sprachwahl (DsSegmentedButton, invertiert auf Orange) */
+.lang { display: inline-flex; border: 1px solid rgba(255,255,255,.75); border-radius: var(--corner-full); overflow: hidden; }
+.lang button { border: 0; background: transparent; color: #fff; font-size: var(--ds-font-size-s); font-weight: var(--ds-font-weight-l); padding: 6px 10px; line-height: 1; cursor: pointer; min-width: 36px; }
+.lang button.on { background: #fff; color: var(--ink); }
+.lang button:not(.on):hover { background: rgba(255,255,255,.15); }
+.lang button:focus-visible { outline: none; box-shadow: var(--ds-box-shadow-primary-keyboard-focus); }
+
 /* ───── Banner (DsAlert info) ───── */
 .banner { font-size: var(--ds-font-size-s); }
 .banner-in { max-width: 1200px; margin: 0 auto; padding: var(--spacing-s) var(--spacing-m); }
@@ -433,6 +440,11 @@ details[open] > summary::after { transform: rotate(-135deg) translateY(-1px); }
 }
 
 #confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 50; display: none; }
+
+/* Nach dem Aufdecken: Endzustand ohne erneute Animation (Spiel wartet auf den Spielleiter) */
+.settled *:not(.champ), .settled *::after, .settled.reveal-msg, .reveal-cta.settled { animation-delay: 0s !important; animation-duration: 0s !important; }
+.reveal-cta { animation: ctaIn .4s 3.2s both; }
+@keyframes ctaIn { from { opacity: 0; visibility: hidden; transform: translateY(6px); } to { opacity: 1; visibility: visible; transform: none; } }
 
 /* ───── Keyframes ───── */
 @keyframes flip { from { transform: rotateY(0); } to { transform: rotateY(180deg); } }

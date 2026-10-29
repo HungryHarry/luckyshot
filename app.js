@@ -1,17 +1,11 @@
 import { CONFIG } from './config.js';
+import { t, getLang, setLang, LANGS } from './i18n.js';
 
 /* ═════════════════════════ Konstanten ═════════════════════════ */
 const AVATARS = ['😀','😎','🤓','🥳','😜','🤠','🤖','😺','🤡','🥸','😇','🤩','😏','🙃','🤪','😴',
   '🤯','🥶','🥵','😈','👽','🎃','🐵','🐶','🦊','🐼','🐸','🐷','🐯','🦁','🐨','🐙','🦄','🐲',
   '🐔','🐧','🦉','🐳','🐰','🐻'];
 
-const EPITAPHS = {
-  dup: ['Wählte die {n}. Leider nicht allein.', 'Die {n} war schon vergeben.', 'Zu viel Teamgeist bei der {n}.',
-    'Große Geister denken gleich – an die {n}.', 'Starb an einer Überdosis {n}.', 'Hier ruht ein Fan der {n}.',
-    'Die {n} war eine Falle.', 'Dachte, die {n} sei ein Geheimtipp.'],
-  none: ['Hat zu lange überlegt.', 'Denkt immer noch nach.', 'Kam, sah – und wählte nichts.',
-    'Der Countdown war schneller.', 'Wollte nur kurz Kaffee holen.'],
-};
 
 const BOT_NAMES = ['Bert','Rosi','Kalle','Uschi','Paule','Gerda','Horst','Mia','Jupp','Lotte','Ede','Frieda',
   'Otto','Hilde','Fritz','Erna','Bodo','Trude','Willi','Elfi','Gustl','Resi','Heinz','Moni','Kurt','Inge',
@@ -22,7 +16,6 @@ const ROOM = (qs.get('room') || 'main').toLowerCase().replace(/[^a-z0-9_-]/g, ''
 const MAX = CONFIG.maxPlayers ?? 30;
 const READY_MS = (CONFIG.readySeconds ?? 3) * 1000;
 const PICK_MS = (CONFIG.pickSeconds ?? 10) * 1000;
-const REVEAL_MS = (CONFIG.revealSeconds ?? 7) * 1000;
 const GRACE_MS = 700; // Puffer für Netzwerk-Latenz nach Ablauf des Countdowns
 
 /* ═════════════════════════ Helfer ═════════════════════════ */
@@ -96,7 +89,7 @@ async function firebaseStore() {
     claimHost(code) { return fdb.set(fdb.ref(db, `luckyshotHostClaims/${uid}`), code); },
     subscribe(cb) {
       fdb.onValue(fdb.ref(db, base), s => cb(s.val() || {}),
-        err => showBanner(`Verbindung zur Datenbank fehlgeschlagen: ${esc(err.message)}`, 'error'));
+        err => showBanner('dbErr', 'error', { m: esc(err.message) }));
     },
     update(u) {
       const o = {};
@@ -143,7 +136,7 @@ let loaded = false;
 let myPid;
 const ui = {
   avatar: null, hostOpen: false, confirmAbort: false, sub: null, lastView: null,
-  confettiFor: null, cache: {}, err: '',
+  confettiFor: null, cache: {}, err: '', claimErr: '', banner: null, joining: false,
 };
 let resolvedRound = -1;
 let advancedReveal = -1;
@@ -195,18 +188,27 @@ function render() {
 
 function renderTop() {
   const p = me();
-  let h = `<span class="chip room" title="Raum">Raum: ${esc(ROOM)}</span>`;
+  const cur = getLang();
+  let h = `<div class="lang" role="group" aria-label="${esc(t('langLabel'))}">${Object.entries(LANGS).map(([k, label]) =>
+    `<button type="button" class="${k === cur ? 'on' : ''}" data-lang="${k}" aria-pressed="${k === cur}">${label}</button>`).join('')}</div>`;
+  h += `<span class="chip room">${esc(t('room', { r: ROOM }))}</span>`;
   if (p) {
     h += isHost()
-      ? `<span class="chip host">👑 Spielleiter</span>`
-      : `<button class="chip link" data-action="toggleHost">Spielleiter?</button>`;
+      ? `<span class="chip host">${t('hostChip')}</span>`
+      : `<button class="chip link" data-action="toggleHost">${t('hostQ')}</button>`;
     h += `<span class="chip me"><span class="e">${p.avatar}</span>${esc(p.name)}</span>`;
   }
   setHTML($('#topRight'), h);
 }
 
-function showBanner(html, kind = 'info') {
-  $('#banner').innerHTML = html ? `<div class="banner ${kind}"><div class="banner-in">${html}</div></div>` : '';
+/** Banner merkt sich nur den Text-Schlüssel → wird bei Sprachwechsel neu übersetzt. */
+function showBanner(key, kind = 'info', params = {}) {
+  ui.banner = key ? { key, kind, params } : null;
+  renderBanner();
+}
+function renderBanner() {
+  const b = ui.banner;
+  $('#banner').innerHTML = b ? `<div class="banner ${b.kind}"><div class="banner-in">${t(b.key, b.params)}</div></div>` : '';
 }
 
 /* ───────────── Beitreten ───────────── */
@@ -214,29 +216,29 @@ function joinSkeleton() {
   return `
   <section class="join">
     <div class="hero">
-      <div class="hero-badge">Partyspiel · bis ${MAX} Spieler</div>
+      <div class="hero-badge">${t('heroBadge', { max: MAX })}</div>
       <h1>Lucky<span>Shot</span></h1>
-      <p>Wähle eine Zahl, die sonst <b>niemand</b> wählt. Klingt einfach? 😏</p>
+      <p>${t('heroText')}</p>
     </div>
     <div class="jcard">
       <div id="joinStatus"></div>
       <label class="field">
-        <span class="lbl">Dein Name</span>
-        <input id="nameIn" maxlength="16" autocomplete="off" placeholder="z. B. Kai" enterkeyhint="go">
+        <span class="lbl">${t('yourName')}</span>
+        <input id="nameIn" maxlength="16" autocomplete="off" placeholder="${esc(t('namePh'))}" enterkeyhint="go">
       </label>
       <div class="field">
-        <span class="lbl">Dein Avatar</span>
-        <div id="avatarGrid" class="avgrid" role="radiogroup" aria-label="Avatar wählen"></div>
+        <span class="lbl">${t('yourAvatar')}</span>
+        <div id="avatarGrid" class="avgrid" role="radiogroup" aria-label="${esc(t('chooseAvatar'))}"></div>
       </div>
       <details class="hostfold" id="hostFold">
-        <summary>Ich bin Spielleiter</summary>
+        <summary>${t('iAmHost')}</summary>
         <label class="field">
-          <span class="lbl">Spielleiter-Code</span>
-          <input id="codeIn" type="password" autocomplete="off" placeholder="Code eingeben">
+          <span class="lbl">${t('hostCode')}</span>
+          <input id="codeIn" type="password" autocomplete="off" placeholder="${esc(t('enterCode'))}">
         </label>
       </details>
       <p class="err" id="joinErr" role="alert"></p>
-      <button class="btn primary big block" data-action="join" id="joinBtn">Beitreten</button>
+      <button class="btn primary big block" data-action="join" id="joinBtn">${t('join')}</button>
     </div>
     ${rulesHTML()}
   </section>`;
@@ -245,22 +247,15 @@ function joinSkeleton() {
 function rulesHTML() {
   return `
   <details class="rules">
-    <summary>So geht's</summary>
-    <ol>
-      <li>Jede Runde wählst du in <b>${CONFIG.pickSeconds ?? 10} Sekunden</b> eine Zahl von 1 bis zur Anzahl der Mitspieler.</li>
-      <li>Wählen zwei oder mehr Spieler <b>dieselbe Zahl</b>, fliegen sie alle raus – ab auf den Friedhof. 🪦</li>
-      <li>Wer keine Karte wählt, fliegt ebenfalls raus.</li>
-      <li>Haben in einer Runde <b>alle dieselbe Zahl</b>, gewinnen alle gemeinsam. 🎉</li>
-      <li>Bleibt nur noch einer übrig, gewinnt der <b>Last Man Standing</b>. 🏆</li>
-      <li>Fliegen alle gleichzeitig raus, verliert die ganze Gruppe. 💀</li>
-    </ol>
+    <summary>${t('rulesTitle')}</summary>
+    <ol>${t('rules', { s: CONFIG.pickSeconds ?? 10 }).map(r => `<li>${r}</li>`).join('')}</ol>
   </details>`;
 }
 
 function prefillJoin() {
   const prof = (() => { try { return JSON.parse(safeStorage('localStorage')?.getItem('luckyshot:profile') || '{}'); } catch { return {}; } })();
   if (prof.name && store.mode !== 'local') $('#nameIn').value = prof.name;
-  if (prof.avatar && store.mode !== 'local') ui.avatar = prof.avatar;
+  if (prof.avatar && store.mode !== 'local' && !ui.avatar) ui.avatar = prof.avatar;
   $('#nameIn').addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
   $('#codeIn').addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
 }
@@ -275,21 +270,21 @@ function renderJoin() {
 
   let status;
   if (running) {
-    status = `<div class="note warn">🎲 Gerade läuft ein Spiel (Runde ${m.round || 1}). Sobald der Spielleiter ein neues Spiel startet, kannst du beitreten.</div>`;
+    status = `<div class="note warn">${t('runningNote', { r: m.round || 1 })}</div>`;
   } else if (full) {
-    status = `<div class="note warn">Die Lobby ist voll (${MAX}/${MAX}).</div>`;
+    status = `<div class="note warn">${t('lobbyFull', { max: MAX })}</div>`;
   } else {
-    status = `<div class="lobbyline"><span><b>${list.length}</b> / ${MAX} Spieler in der Lobby</span>
+    status = `<div class="lobbyline"><span>${t('inLobby', { n: list.length, max: MAX })}</span>
       <span class="minis">${list.slice(0, 14).map(p => `<span title="${esc(p.name)}">${p.avatar}</span>`).join('')}${list.length > 14 ? `<span class="more">+${list.length - 14}</span>` : ''}</span></div>`;
   }
   setHTML($('#joinStatus'), status);
   setHTML($('#avatarGrid'), AVATARS.map(a => {
-    const t = taken.has(a);
-    return `<button type="button" class="avopt ${ui.avatar === a ? 'sel' : ''}" data-avatar="${a}" ${t ? 'disabled title="schon vergeben"' : ''} role="radio" aria-checked="${ui.avatar === a}">${a}</button>`;
+    const tk = taken.has(a);
+    return `<button type="button" class="avopt ${ui.avatar === a ? 'sel' : ''}" data-avatar="${a}" ${tk ? `disabled title="${esc(t('taken'))}"` : ''} role="radio" aria-checked="${ui.avatar === a}">${a}</button>`;
   }).join(''));
   const btn = $('#joinBtn');
-  if (btn) btn.disabled = running || full;
-  $('#joinErr').textContent = ui.err;
+  if (btn && !ui.joining) btn.disabled = running || full;
+  $('#joinErr').textContent = ui.err ? t(ui.err) : '';
 }
 
 async function join() {
@@ -297,20 +292,21 @@ async function join() {
   const code = ($('#codeIn')?.value || '').trim();
   const m = meta();
   const list = playerList();
-  const fail = msg => { ui.err = msg; renderJoin(); };
-  if (m.status !== 'lobby') return fail('Das Spiel läuft bereits.');
-  if (list.length >= MAX) return fail('Die Lobby ist voll.');
-  if (!name) return fail('Bitte gib einen Namen ein.');
-  if (list.some(p => p.name.toLowerCase() === name.toLowerCase())) return fail('Dieser Name ist schon vergeben.');
-  if (!ui.avatar) return fail('Bitte wähle einen Avatar.');
-  if (list.some(p => p.avatar === ui.avatar)) return fail('Dieser Avatar ist schon vergeben.');
+  const fail = key => { ui.err = key; renderJoin(); };
+  if (m.status !== 'lobby') return fail('errRunning');
+  if (list.length >= MAX) return fail('errFull');
+  if (!name) return fail('errName');
+  if (list.some(p => p.name.toLowerCase() === name.toLowerCase())) return fail('errNameTaken');
+  if (!ui.avatar) return fail('errAvatar');
+  if (list.some(p => p.avatar === ui.avatar)) return fail('errAvatarTaken');
   const hostClaim = code !== '';
   const btn = $('#joinBtn');
+  ui.joining = true;
   if (btn) btn.disabled = true;
   try {
     // 1) Spielleiter-Code zuerst vom Server prüfen lassen
     if (hostClaim) {
-      try { await store.claimHost(code); } catch { return fail('Der Spielleiter-Code ist falsch.'); }
+      try { await store.claimHost(code); } catch { return fail('errCode'); }
     }
     ui.err = '';
     try { safeStorage('localStorage')?.setItem('luckyshot:profile', JSON.stringify({ name, avatar: ui.avatar })); } catch {}
@@ -325,13 +321,20 @@ async function join() {
     store.presence(myPid);
   } catch (e) {
     console.error(e);
-    fail('Beitreten hat nicht geklappt. Läuft gerade ein Spiel? Bitte Seite neu laden und erneut versuchen.');
+    fail('errJoin');
   } finally {
-    if (btn) btn.disabled = false;
+    ui.joining = false;
+    if (btn && document.body.contains(btn)) btn.disabled = false;
   }
 }
 
 /* ───────────── Spielansicht ───────────── */
+/** Nach dem Aufdecken wartet das Spiel auf den Spielleiter. Damit bei späteren
+    Neu-Renderings (z. B. jemand geht offline) die Animationen nicht erneut starten,
+    wird der Endzustand ab ~5 s direkt gezeigt. */
+const SETTLE_MS = 5000;
+const isSettled = () => meta().status === 'reveal' && store.now() - (meta().revealAt || 0) > SETTLE_MS;
+
 function renderGame() {
   const m = meta();
   const wrap = $('#stageWrap');
@@ -352,27 +355,37 @@ function hostbarHTML() {
   if (!isHost()) {
     if (!ui.hostOpen) return '';
     return `<div class="hostbar"><div class="hb-in">
-      <span class="hb-title">Spielleiter-Login</span>
-      <input id="claimCode" type="password" placeholder="Spielleiter-Code" autocomplete="off">
-      <button class="btn primary sm" data-action="claimHost">Bestätigen</button>
-      <button class="btn ghost sm" data-action="toggleHost">Abbrechen</button>
-      <span class="err" id="claimErr">${esc(ui.claimErr || '')}</span>
+      <span class="hb-title">${t('hostLogin')}</span>
+      <input id="claimCode" type="password" placeholder="${esc(t('hostCode'))}" autocomplete="off">
+      <button class="btn primary sm" data-action="claimHost">${t('confirm')}</button>
+      <button class="btn ghost sm" data-action="toggleHost">${t('cancel')}</button>
+      <span class="err" id="claimErr">${ui.claimErr ? t(ui.claimErr) : ''}</span>
     </div></div>`;
   }
   const n = playerList().length;
-  let h = `<div class="hostbar is-host"><div class="hb-in"><span class="hb-title">👑 Spielleiter</span>`;
+  const abortBtns = ui.confirmAbort
+    ? `<button class="btn danger sm" data-action="abort">${t('reallyAbort')}</button><button class="btn ghost sm" data-action="cancelAbort">${t('no')}</button>`
+    : `<button class="btn ghost sm" data-action="askAbort">${t('abort')}</button>`;
+  let h = `<div class="hostbar is-host"><div class="hb-in"><span class="hb-title">${t('hostTitle')}</span>`;
   if (m.status === 'lobby') {
-    h += `<button class="btn primary" data-action="start" ${n < 2 ? 'disabled' : ''}>▶ Spiel starten (${plural(n, 'Spieler', 'Spieler')})</button>`;
-    if (botsAllowed()) h += `<button class="btn tertiary sm" data-action="addBot" ${n >= MAX ? 'disabled' : ''}>+ Testbot</button>
-      <button class="btn tertiary sm" data-action="addBot5" ${n >= MAX ? 'disabled' : ''}>+ 5 Bots</button>`;
-    if (n < 2) h += `<span class="hint">Mindestens 2 Spieler nötig.</span>`;
+    h += `<button class="btn primary" data-action="start" ${n < 2 ? 'disabled' : ''}>${t('startGame', { n })}</button>`;
+    if (botsAllowed()) h += `<button class="btn tertiary sm" data-action="addBot" ${n >= MAX ? 'disabled' : ''}>${t('addBot')}</button>
+      <button class="btn tertiary sm" data-action="addBot5" ${n >= MAX ? 'disabled' : ''}>${t('addBots5')}</button>`;
+    if (n < 2) h += `<span class="hint">${t('min2')}</span>`;
   } else if (m.status === 'finished') {
-    h += `<button class="btn primary" data-action="newGame">↻ Neues Spiel</button>`;
+    h += `<button class="btn primary" data-action="newGame">${t('newGame')}</button>`;
+  } else if (m.status === 'reveal') {
+    const settled = isSettled() ? 'settled' : '';
+    if (m.outcome === 'continue') {
+      h += `<button class="btn primary reveal-cta ${settled}" data-action="nextRound">${t('nextRound', { r: (m.round || 0) + 1 })}</button>
+        <span class="hint">${t('revealHint', { r: m.round })}</span>`;
+    } else {
+      h += `<button class="btn primary reveal-cta ${settled}" data-action="showPodium">${t('showPodium')}</button>
+        <span class="hint">${t('revealEndHint')}</span>`;
+    }
+    h += abortBtns;
   } else {
-    h += `<span class="hint">Runde ${m.round} läuft automatisch.</span>`;
-    h += ui.confirmAbort
-      ? `<button class="btn danger sm" data-action="abort">Wirklich abbrechen?</button><button class="btn ghost sm" data-action="cancelAbort">Nein</button>`
-      : `<button class="btn ghost sm" data-action="askAbort">Spiel abbrechen</button>`;
+    h += `<span class="hint">${t('roundRunning', { r: m.round })}</span>${abortBtns}`;
   }
   h += `</div></div>`;
   return h;
@@ -406,13 +419,13 @@ function arenaHTML() {
       fresh ? 'pop' : '',
       showPresence && !p.bot && !pres[id] ? 'offline' : '',
     ].join(' ');
-    const crown = m.hostId === id ? '<span class="crown" title="Spielleiter">👑</span>' : '';
+    const crown = m.hostId === id ? `<span class="crown" title="${esc(t('crownTitle'))}">👑</span>` : '';
     seats += `<div class="seat" style="--a:${a}deg;--r:var(--ra)"><div class="av ${cls}" title="${esc(p.name)}">
       <span class="emo">${p.avatar}</span>${crown}<span class="nm">${esc(p.name)}</span></div></div>`;
     if (st === 'picking' || reveal) {
       const v = picks[id];
       let c = 'card';
-      let front = v ?? '–';
+      const front = v ?? '–';
       let back = '';
       if (reveal) {
         c += ' flipped';
@@ -420,7 +433,7 @@ function arenaHTML() {
         if (elim.has(id)) c += ' doomed';
       } else {
         if (v) c += ' ready';
-        if (id === myPid && v) back = v; else back = v ? '✓' : '?';
+        back = id === myPid && v ? v : v ? '✓' : '?';
       }
       seats += `<div class="seat" style="--a:${a}deg;--r:var(--rc)"><div class="${c}" style="--i:${i}">
         <div class="inner"><div class="face back">${back}</div><div class="face front">${front}</div></div></div></div>`;
@@ -429,26 +442,26 @@ function arenaHTML() {
 
   let center = '';
   if (st === 'lobby') {
-    center = `<div class="c-big">${n}<small>/${MAX}</small></div><div class="c-sub">${n === 1 ? 'Spieler' : 'Spieler'} in der Lobby</div>
-      <div class="c-wait">Warte auf Start <span class="dots"><i></i><i></i><i></i></span></div>`;
+    center = `<div class="c-big">${n}<small>/${MAX}</small></div><div class="c-sub">${t('lobbyCount', { n })}</div>
+      <div class="c-wait">${t('waitStart')} <span class="dots"><i></i><i></i><i></i></span></div>`;
   } else if (st === 'picking') {
     const sub = ui.sub || 'go';
     center = `<div class="ring ${sub}"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="track" cx="50" cy="50" r="44"/>
       <circle class="prog" data-ring cx="50" cy="50" r="44"/></svg>
-      <div class="ring-txt"><div class="c-round">Runde ${m.round}</div><div class="c-secs" data-secs>${Math.ceil(PICK_MS / 1000)}</div>
-      <div class="c-sub">${sub === 'ready' ? 'Bereit?' : sub === 'over' ? 'Zeit um!' : `Zahl 1–${range}`}</div></div></div>`;
+      <div class="ring-txt"><div class="c-round">${t('round', { r: m.round })}</div><div class="c-secs" data-secs>${Math.ceil(PICK_MS / 1000)}</div>
+      <div class="c-sub">${sub === 'ready' ? t('ready') : sub === 'over' ? t('timeUp') : t('numRange', { n: range })}</div></div></div>`;
   } else if (reveal) {
     const k = (m.eliminated || []).length;
     let out;
-    if (m.outcome === 'allSame') out = `<b class="good">Alle gleich!</b><span>Alle hatten die ${m.winPick}</span>`;
-    else if (m.outcome === 'groupLost') out = `<b class="bad">Alle raus!</b><span>Die Gruppe verliert</span>`;
-    else if (m.outcome === 'winner') out = `<b class="good">Last Man Standing!</b><span>${esc(ps[(m.winners || [])[0]]?.name || '')}</span>`;
-    else if (k === 0) out = `<b class="good">Alle sicher!</b><span>Keine doppelten Zahlen</span>`;
-    else out = `<b class="bad">${k} raus!</b><span>Noch ${n - k} im Spiel</span>`;
-    center = `<div class="c-round">Runde ${m.round}</div><div class="c-flip">Aufgedeckt!</div><div class="c-out">${out}</div>`;
+    if (m.outcome === 'allSame') out = `<b class="good">${t('cAllSame')}</b><span>${t('cAllHad', { n: m.winPick })}</span>`;
+    else if (m.outcome === 'groupLost') out = `<b class="bad">${t('cAllOut')}</b><span>${t('cGroupLoses')}</span>`;
+    else if (m.outcome === 'winner') out = `<b class="good">${t('cLms')}</b><span>${esc(ps[(m.winners || [])[0]]?.name || '')}</span>`;
+    else if (k === 0) out = `<b class="good">${t('cAllSafe')}</b><span>${t('cNoDup')}</span>`;
+    else out = `<b class="bad">${t('cOut', { k })}</b><span>${t('cStillIn', { n: n - k })}</span>`;
+    center = `<div class="c-round">${t('round', { r: m.round })}</div><div class="c-flip">${t('revealed')}</div><div class="c-out">${out}</div>`;
   }
 
-  return `<div class="arena-wrap"><div class="arena ${n > 16 ? 'many' : ''}" style="--n:${Math.max(n, 1)}">
+  return `<div class="arena-wrap ${isSettled() ? 'settled' : ''}"><div class="arena ${n > 16 ? 'many' : ''}" style="--n:${Math.max(n, 1)}">
     <div class="center">${center}</div>${seats}</div></div>`;
 }
 
@@ -459,15 +472,16 @@ function panelHTML() {
   const inRoster = roster().includes(myPid);
   const n = playerList().length;
   const range = m.aliveCount || roster().length;
+  const num = v => `<b class="big-num">${v}</b>`;
 
   if (st === 'lobby') {
     return `<div class="pcard-box">
-      <h2>Du bist dabei! <span class="e">${p.avatar}</span></h2>
-      <p>${isHost() ? 'Starte das Spiel, sobald alle Spieler beigetreten sind.' : 'Warte, bis der Spielleiter das Spiel startet.'}</p>
-      <div class="stat"><b>${n}</b> / ${MAX} Spieler</div>
-      ${!meta().hostId ? `<div class="note warn">Noch kein Spielleiter angemeldet. Oben auf „Spielleiter?“ klicken und Code eingeben.</div>` : ''}
+      <h2>${t('youreIn')} <span class="e">${p.avatar}</span></h2>
+      <p>${isHost() ? t('hostStartHint') : t('waitHost')}</p>
+      <div class="stat">${t('playersCount', { n, max: MAX })}</div>
+      ${!meta().hostId ? `<div class="note warn">${t('noHost')}</div>` : ''}
       ${hostListHTML()}
-      <button class="btn ghost sm" data-action="leave">Lobby verlassen</button>
+      <button class="btn ghost sm" data-action="leave">${t('leave')}</button>
       ${rulesHTML()}
     </div>`;
   }
@@ -478,9 +492,9 @@ function panelHTML() {
     const mine = curPicks()[myPid];
     const enabled = sub === 'go';
     let head;
-    if (sub === 'ready') head = `<h2>Runde ${m.round} – gleich geht's los!</h2><p>Gleich wählst du eine Zahl von <b>1 bis ${range}</b>.</p>`;
-    else if (sub === 'over') head = `<h2>Zeit um! ⏰</h2><p>${mine ? `Deine Wahl: <b class="big-num">${mine}</b> – gleich wird aufgedeckt …` : 'Du hast keine Karte gewählt …'}</p>`;
-    else head = `<h2>Wähle eine Zahl von 1 bis ${range}</h2><p>${mine ? `Deine Wahl: <b class="big-num">${mine}</b> · du kannst noch wechseln` : 'Tippe auf eine Karte. Nur einzigartige Zahlen überleben!'}</p>`;
+    if (sub === 'ready') head = `<h2>${t('readyHead', { r: m.round })}</h2><p>${t('readyText', { n: range })}</p>`;
+    else if (sub === 'over') head = `<h2>${t('overHead')}</h2><p>${mine ? t('pickRevealSoon', { pick: num(mine) }) : t('noPick')}</p>`;
+    else head = `<h2>${t('pickHead', { n: range })}</h2><p>${mine ? t('pickChange', { pick: num(mine) }) : t('tapCard')}</p>`;
     let cards = '';
     for (let i = 1; i <= range; i++) {
       cards += `<button class="pick ${mine === i ? 'sel' : ''}" data-pick="${i}" ${enabled ? '' : 'disabled'} aria-pressed="${mine === i}"><span>${i}</span></button>`;
@@ -494,21 +508,22 @@ function panelHTML() {
     if (!inRoster) return deadPanel();
     const mine = curPicks()[myPid];
     const out = (m.eliminated || []).includes(myPid);
+    const wait = `<p class="muted">${m.outcome === 'continue' ? t('waitNext') : t('waitPodium')}</p>`;
     let msg;
-    if (m.outcome === 'allSame') msg = `<h2 class="good">Alle gleich – ihr habt gewonnen! 🎉</h2>`;
-    else if (out) msg = `<h2 class="bad">Raus! 🪦</h2><p>${mine ? `Die <b>${mine}</b> hatte noch jemand.` : 'Du hast keine Karte gewählt.'} Du wanderst auf den Friedhof.</p>`;
-    else if (m.outcome === 'winner') msg = `<h2 class="good">Du bist der Last Man Standing! 🏆</h2>`;
-    else msg = `<h2 class="good">Überlebt! 🎉</h2><p>Deine <b>${mine}</b> war einzigartig. Weiter geht's!</p>`;
-    return `<div class="pcard-box reveal-msg">${msg}</div>`;
+    if (m.outcome === 'allSame') msg = `<h2 class="good">${t('allSameWin')}</h2>`;
+    else if (out) msg = `<h2 class="bad">${t('outHead')}</h2><p>${mine ? t('outDup', { n: mine }) : t('outNone')} ${t('toGrave')}</p>`;
+    else if (m.outcome === 'winner') msg = `<h2 class="good">${t('youLms')}</h2>`;
+    else msg = `<h2 class="good">${t('survived')}</h2><p>${t('survivedText', { n: mine })}</p>`;
+    return `<div class="pcard-box reveal-msg ${isSettled() ? 'settled' : ''}">${msg}${isHost() ? '' : wait}</div>`;
   }
 
   if (st === 'finished') {
     const won = (m.winners || []).includes(myPid);
     let h;
-    if (m.outcome === 'groupLost') h = `<h2 class="bad">Niemand hat gewonnen 💀</h2><p>In Runde ${m.round} sind alle gleichzeitig rausgeflogen.</p>`;
-    else if (won) h = `<h2 class="good">Du hast gewonnen! 🏆</h2><p>Nach ${plural(m.round, 'Runde', 'Runden')}.</p>`;
-    else h = `<h2>Spiel vorbei</h2><p>Du bist in Runde ${p.elimRound || '?'} ausgeschieden. Nächstes Mal! 🍀</p>`;
-    return `<div class="pcard-box">${h}${isHost() ? '' : '<p class="muted">Warte auf ein neues Spiel vom Spielleiter …</p>'}</div>`;
+    if (m.outcome === 'groupLost') h = `<h2 class="bad">${t('nobodyWon')}</h2><p>${t('allOutRound', { r: m.round })}</p>`;
+    else if (won) h = `<h2 class="good">${t('youWon')}</h2><p>${t('afterRounds', { n: m.round })}</p>`;
+    else h = `<h2>${t('gameOver')}</h2><p>${t('outInRound', { r: p.elimRound || '?' })}</p>`;
+    return `<div class="pcard-box">${h}${isHost() ? '' : `<p class="muted">${t('waitNewGame')}</p>`}</div>`;
   }
   return '';
 }
@@ -517,8 +532,8 @@ function deadPanel() {
   const p = me();
   const m = meta();
   return `<div class="pcard-box dead">
-    <h2>🪦 Du liegst auf dem Friedhof</h2>
-    <p>${p.elimRound ? `Ausgeschieden in Runde ${p.elimRound}.` : ''} Schau zu, wie die anderen sich schlagen – noch ${plural(roster().length, 'Spieler', 'Spieler')} im Rennen.</p>
+    <h2>${t('deadHead')}</h2>
+    <p>${p.elimRound ? t('deadOutRound', { r: p.elimRound }) : ''} ${t('deadWatch', { n: roster().length - (m.status === 'reveal' ? (m.eliminated || []).length : 0) })}</p>
     ${m.status === 'picking' ? `<div class="bar ${ui.sub || 'go'}"><i data-bar></i><span data-secs></span></div>` : ''}
   </div>`;
 }
@@ -527,12 +542,12 @@ function hostListHTML() {
   if (!isHost()) return '';
   const pres = presence();
   const rows = playerList().map(p => `<li>
-    <span class="e">${p.avatar}</span><span class="n">${esc(p.name)}${p.bot ? ' <small>(Bot)</small>' : ''}${p.id === myPid ? ' <small>(du)</small>' : ''}</span>
-    ${store.mode === 'firebase' && !p.bot ? `<span class="dot ${pres[p.id] ? 'on' : ''}" title="${pres[p.id] ? 'online' : 'offline'}"></span>` : ''}
-    ${p.id !== myPid ? `<button class="x" data-kick="${p.id}" title="${esc(p.name)} entfernen" aria-label="${esc(p.name)} entfernen">✕</button>` : ''}
+    <span class="e">${p.avatar}</span><span class="n">${esc(p.name)}${p.bot ? ` <small>${t('bot')}</small>` : ''}${p.id === myPid ? ` <small>${t('you')}</small>` : ''}</span>
+    ${store.mode === 'firebase' && !p.bot ? `<span class="dot ${pres[p.id] ? 'on' : ''}" title="${pres[p.id] ? t('online') : t('offline')}"></span>` : ''}
+    ${p.id !== myPid ? `<button class="x" data-kick="${p.id}" title="${esc(t('remove', { name: p.name }))}" aria-label="${esc(t('remove', { name: p.name }))}">✕</button>` : ''}
   </li>`).join('');
-  return `<details class="plist" open><summary>Spieler verwalten</summary><ul>${rows}</ul>
-    <p class="muted small">Einladungslink: <code>${esc(location.href.split('#')[0])}</code></p></details>`;
+  return `<details class="plist" open><summary>${t('managePlayers')}</summary><ul>${rows}</ul>
+    <p class="muted small">${t('inviteLink')} <code>${esc(location.href.split('#')[0])}</code></p></details>`;
 }
 
 function graveyardHTML() {
@@ -542,18 +557,18 @@ function graveyardHTML() {
     .sort((a, b) => b.elimRound - a.elimRound || (a.joinedAt || 0) - (b.joinedAt || 0));
   const freshSet = new Set(m.status === 'reveal' ? (m.eliminated || []) : []);
   const tombs = dead.map((p, i) => {
-    const list = EPITAPHS[p.elimReason] || EPITAPHS.dup;
-    const ep = list[hash(p.id + ':' + p.elimRound) % list.length].replace('{n}', p.elimPick ?? '?');
+    const list = t(p.elimReason === 'none' ? 'epitaphsNone' : 'epitaphsDup', { n: p.elimPick ?? '?' });
+    const ep = list[hash(p.id + ':' + p.elimRound) % list.length];
     const tilt = (hash(p.id) % 7) - 3;
     return `<div class="tomb ${freshSet.has(p.id) ? 'fresh' : ''}" style="--tilt:${tilt}deg;--j:${i}">
       <div class="stone"><span class="rip">R.I.P.</span><span class="emo">${p.avatar}</span>
-      <b>${esc(p.name)}</b><small>Runde ${p.elimRound}${p.elimPick ? ` · ${p.elimPick}` : ''}</small><em>${esc(ep)}</em></div>
+      <b>${esc(p.name)}</b><small>${t('round', { r: p.elimRound })}${p.elimPick ? ` · ${p.elimPick}` : ''}</small><em>${esc(ep)}</em></div>
       <div class="mound"></div></div>`;
   }).join('');
-  return `<div class="yard">
-    <div class="yard-head"><h2>🪦 Friedhof der Doppelten</h2><span class="moon" aria-hidden="true">🌕</span>
+  return `<div class="yard ${isSettled() ? 'settled' : ''}">
+    <div class="yard-head"><h2>${t('graveTitle')}</h2><span class="moon" aria-hidden="true">🌕</span>
     <span class="bats" aria-hidden="true">🦇</span></div>
-    ${dead.length ? `<div class="tombs">${tombs}</div>` : `<p class="empty">Noch ist der Friedhof leer … 🌱 <span>Das wird sich ändern.</span></p>`}
+    ${dead.length ? `<div class="tombs">${tombs}</div>` : `<p class="empty">${t('graveEmpty')} <span>${t('graveEmpty2')}</span></p>`}
     <div class="grass"></div></div>`;
 }
 
@@ -567,9 +582,9 @@ function podiumHTML() {
   const third = rounds.length > 1 ? dead.filter(p => p.elimRound === rounds[1]) : [];
 
   let title, sub;
-  if (m.outcome === 'allSame') { title = `🎉 Alle gleich – ${plural(winners.length, 'Gewinner', 'Gewinner')}!`; sub = `Alle hatten in Runde ${m.round} die ${m.winPick}.`; }
-  else if (m.outcome === 'winner') { title = `🏆 ${esc(winners[0]?.name || '')} gewinnt!`; sub = `Last Man Standing nach ${plural(m.round, 'Runde', 'Runden')}.`; }
-  else { title = '💀 Niemand gewinnt'; sub = `In Runde ${m.round} sind alle gleichzeitig rausgeflogen – die Gruppe verliert.`; }
+  if (m.outcome === 'allSame') { title = t('podAllSame', { n: winners.length }); sub = t('podAllSameSub', { r: m.round, n: m.winPick }); }
+  else if (m.outcome === 'winner') { title = t('podWinner', { name: esc(winners[0]?.name || '') }); sub = t('podWinnerSub', { n: m.round }); }
+  else { title = t('podNobody'); sub = t('podNobodySub', { r: m.round }); }
 
   const who = (list, max, cls = '') => {
     if (!list.length) return `<div class="who empty">${cls === 'w' ? '🤷' : ''}</div>`;
@@ -613,8 +628,8 @@ function tick() {
 }
 
 /* ═════════════════════════ Spielleiter-Logik ═════════════════════════
-   Das Gerät des Spielleiters ist "Schiedsrichter": es startet Runden, wertet aus
-   und schaltet weiter. Alle Zeiten basieren auf der Server-Zeit (Firebase-Offset). */
+   Das Gerät des Spielleiters ist "Schiedsrichter": es wertet jede Runde nach Ablauf
+   des Countdowns aus. Die nächste Runde startet der Spielleiter per Klick. Alle Zeiten basieren auf der Server-Zeit (Firebase-Offset). */
 let hostBusy = false;
 async function hostLoop() {
   if (!loaded || !isHost() || hostBusy) return;
@@ -625,11 +640,8 @@ async function hostLoop() {
     if (m.status === 'picking') {
       await botPicks(m, now);
       if (now > m.deadline + GRACE_MS && resolvedRound !== m.round) await resolveRound();
-    } else if (m.status === 'reveal' && now > (m.revealAt || 0) + REVEAL_MS && advancedReveal !== m.round) {
-      advancedReveal = m.round;
-      if (m.outcome === 'continue') await startRound();
-      else await store.update({ 'meta/status': 'finished', 'meta/finishedAt': now });
     }
+    // Nach dem Aufdecken wartet das Spiel, bis der Spielleiter „Nächste Runde“ bzw. „Siegertreppchen“ klickt.
   } catch (e) { console.error(e); }
   finally { hostBusy = false; }
 }
@@ -742,6 +754,9 @@ async function addBots(k) {
 
 /* ═════════════════════════ Events ═════════════════════════ */
 document.addEventListener('click', async e => {
+  const lg = e.target.closest('[data-lang]');
+  if (lg) { changeLang(lg.dataset.lang); return; }
+
   const av = e.target.closest('[data-avatar]');
   if (av && !av.disabled) { ui.avatar = av.dataset.avatar; ui.err = ''; renderJoin(); return; }
 
@@ -771,6 +786,22 @@ document.addEventListener('click', async e => {
     case 'addBot': if (isHost()) await addBots(1); break;
     case 'addBot5': if (isHost()) await addBots(5); break;
     case 'newGame': if (isHost()) await newGame(); break;
+    case 'nextRound': {
+      const m = meta();
+      if (isHost() && m.status === 'reveal' && m.outcome === 'continue' && advancedReveal !== m.round) {
+        advancedReveal = m.round;
+        await startRound();
+      }
+      break;
+    }
+    case 'showPodium': {
+      const m = meta();
+      if (isHost() && m.status === 'reveal' && m.outcome !== 'continue' && advancedReveal !== m.round) {
+        advancedReveal = m.round;
+        await store.update({ 'meta/status': 'finished', 'meta/finishedAt': store.now() });
+      }
+      break;
+    }
     case 'askAbort': ui.confirmAbort = true; render(); break;
     case 'cancelAbort': ui.confirmAbort = false; render(); break;
     case 'abort': if (isHost()) await newGame(); break;
@@ -778,7 +809,7 @@ document.addEventListener('click', async e => {
     case 'toggleHost': ui.hostOpen = !ui.hostOpen; ui.claimErr = ''; render(); setTimeout(() => $('#claimCode')?.focus(), 0); break;
     case 'claimHost': {
       const code = ($('#claimCode')?.value || '').trim();
-      try { await store.claimHost(code); } catch { ui.claimErr = 'Code falsch.'; ui.cache.hostbar = null; render(); break; }
+      try { await store.claimHost(code); } catch { ui.claimErr = 'codeWrong'; ui.cache.hostbar = null; render(); break; }
       ui.hostOpen = false; ui.claimErr = '';
       const u = { 'meta/hostId': myPid };
       if (!game.meta || !game.meta.status) { u['meta/status'] = 'lobby'; u['meta/round'] = 0; }
@@ -792,7 +823,7 @@ document.addEventListener('click', async e => {
 window.addEventListener('unhandledrejection', e => {
   const msg = String(e.reason?.message || e.reason || '');
   console.error(e.reason);
-  if (/permission/i.test(msg)) showBanner('Diese Aktion wurde vom Server abgelehnt (keine Berechtigung). Bitte Seite neu laden.', 'error');
+  if (/permission/i.test(msg)) showBanner('deniedBanner', 'error');
 });
 
 document.addEventListener('keydown', e => {
@@ -844,12 +875,31 @@ function confetti(duration = 6000) {
 }
 
 /* ═════════════════════════ Start ═════════════════════════ */
+/** Sprache wechseln: alles neu aufbauen, Eingaben im Beitreten-Formular behalten. */
+function changeLang(l) {
+  if (l === getLang()) return;
+  const keep = { name: $('#nameIn')?.value, code: $('#codeIn')?.value, hostOpen: $('#hostFold')?.open, claim: $('#claimCode')?.value };
+  setLang(l);
+  ui.lastView = null;
+  ui.cache = {};
+  renderBanner();
+  if (!loaded) { $('#app').innerHTML = `<div class="loading"><span class="spinner"></span> ${t('loading')}</div>`; return; }
+  render();
+  if (keep.name != null && $('#nameIn')) $('#nameIn').value = keep.name;
+  if (keep.code != null && $('#codeIn')) $('#codeIn').value = keep.code;
+  if (keep.hostOpen && $('#hostFold')) $('#hostFold').open = true;
+  if (keep.claim != null && $('#claimCode')) $('#claimCode').value = keep.claim;
+}
+
 async function boot() {
+  document.documentElement.lang = getLang();
+  renderTop();
+  $('#app').innerHTML = `<div class="loading"><span class="spinner"></span> ${t('loading')}</div>`;
   try {
     store = await createStore();
   } catch (e) {
     console.error(e);
-    $('#app').innerHTML = `<div class="note error">Firebase konnte nicht geladen werden. Prüfe die Werte in <code>config.js</code> und deine Internetverbindung.<br><small>${esc(e.message)}</small></div>`;
+    $('#app').innerHTML = `<div class="note error">${t('fbLoadErr')}<br><small>${esc(e.message)}</small></div>`;
     return;
   }
   const idStore = store.mode === 'local' ? safeStorage('sessionStorage') : safeStorage('localStorage');
@@ -861,7 +911,7 @@ async function boot() {
   if (brand && ROOM !== 'main') brand.href = `?room=${encodeURIComponent(ROOM)}`;
 
   if (store.mode === 'local') {
-    showBanner(`<b>Demo-Modus</b> – das Spiel läuft nur in diesem Browser (öffne weitere Tabs für mehr Spieler oder füge Testbots hinzu). Für echtes Multiplayer Firebase in <code>config.js</code> eintragen.`, 'info');
+    showBanner('demoBanner', 'info');
   }
 
   let presenceSet = false;
